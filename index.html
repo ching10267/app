@@ -240,7 +240,7 @@
     /** 處理 API 錯誤 (例如 Firestore 權限問題) */
     const handleError = (action, error) => {
         console.error(`執行 ${action} 失敗:`, error);
-        alertUser(`操作失敗: ${action}。請檢查網路或權限設置。`);
+        alertUser(`操作失敗: ${action}。請檢查網路或權限設置。`, true);
     };
 
     /** 顯示自定義訊息框 (顯示連線狀態，僅限臨時錯誤或提示) */
@@ -250,12 +250,17 @@
         userInfo.classList.remove('text-gray-500', 'opacity-0', 'h-0');
         userInfo.classList.add('opacity-100', 'h-auto', isError ? 'text-rose-500' : 'text-green-500');
 
-        setTimeout(() => {
-            // 隱藏訊息
-            userInfo.textContent = ''; 
-            userInfo.classList.remove('text-rose-500', 'text-green-500', 'opacity-100', 'h-auto');
-            userInfo.classList.add('opacity-0', 'h-0');
-        }, 5000);
+        // 只在不是持續的錯誤狀態下才設置自動隱藏
+        if (!isError || message.includes('成功')) {
+            setTimeout(() => {
+                // 隱藏訊息，但不要影響持續的錯誤狀態（如果存在）
+                if (userInfo.textContent === message) {
+                    userInfo.textContent = ''; 
+                    userInfo.classList.remove('text-rose-500', 'text-green-500', 'opacity-100', 'h-auto');
+                    userInfo.classList.add('opacity-0', 'h-0');
+                }
+            }, 5000);
+        }
     };
 
     /** 控制 UI 元素，直到 Firebase 認證完成 */
@@ -263,29 +268,24 @@
         const addBtn = document.getElementById('add-event-btn');
         const saveBtn = document.getElementById('save-event-btn');
 
+        const classesToRemove = ['opacity-50', 'cursor-not-allowed', 'hover:bg-gray-800'];
+        const classesToAdd = ready ? ['hover:bg-gray-800'] : ['opacity-50', 'cursor-not-allowed'];
+
+        // 啟用/禁用 新增按鈕
+        addBtn.disabled = !ready;
+        addBtn.classList.remove(...classesToRemove);
+        addBtn.classList.add(...classesToAdd);
+        
+        // 啟用/禁用 儲存按鈕
+        saveBtn.disabled = !ready;
+        saveBtn.classList.remove(...classesToRemove);
+        saveBtn.classList.add(...classesToAdd);
+        
+        // 成功連接後隱藏狀態訊息 (僅限成功時)
         if (ready) {
-            // 啟用按鈕
-            addBtn.disabled = false;
-            addBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-            addBtn.classList.add('hover:bg-gray-800');
-            
-            saveBtn.disabled = false;
-            saveBtn.classList.remove('opacity-50', 'cursor-not-allowed');
-            saveBtn.classList.add('hover:bg-gray-800');
-
-            // 成功連接後隱藏狀態訊息
             const userInfo = document.getElementById('user-info');
-            userInfo.classList.remove('text-gray-500', 'opacity-100', 'h-auto');
+            userInfo.classList.remove('text-rose-500', 'text-gray-500', 'opacity-100', 'h-auto');
             userInfo.classList.add('opacity-0', 'h-0');
-        } else {
-            // 禁用按鈕 (初始化時預設已禁用)
-            addBtn.disabled = true;
-            addBtn.classList.add('opacity-50', 'cursor-not-allowed');
-            addBtn.classList.remove('hover:bg-gray-800');
-
-            saveBtn.disabled = true;
-            saveBtn.classList.add('opacity-50', 'cursor-not-allowed');
-            saveBtn.classList.remove('hover:bg-gray-800');
         }
     };
 
@@ -295,6 +295,9 @@
     const initializeFirebase = async () => {
         // 立即禁用 UI 並顯示載入狀態
         toggleUIState(false); 
+        document.getElementById('user-info').textContent = '連線狀態: 正在驗證使用者...';
+        document.getElementById('user-info').classList.remove('text-rose-500');
+        document.getElementById('user-info').classList.add('text-gray-500', 'opacity-100', 'h-auto');
 
         try {
             if (Object.keys(firebaseConfig).length > 0) {
@@ -311,20 +314,20 @@
 
                 // 設定認證狀態監聽
                 onAuthStateChanged(auth, (user) => {
+                    isAuthReady = true; // 認證檢查完成
                     if (user) {
                         userId = user.uid;
-                        isAuthReady = true;
                         // 認證成功，啟用 UI
                         toggleUIState(true);
                         document.getElementById('user-info').dataset.userId = userId; 
                         startListeningToEvents(); // 認證成功後開始監聽
                     } else {
                         userId = null;
-                        isAuthReady = true;
-                        // 認證失敗，仍標記 ready，但保持 UI 禁用或顯示錯誤
-                        alertUser('連線狀態: 認證失敗或離線', true); 
-                        // 如果 auth 失敗，我們仍然可以允許使用者查看，但保持禁用新增功能直到成功
-                        // 這裡我們假設若無法認證，則無法進行寫入，所以UI保持禁用是合理的。
+                        // 認證失敗，顯示持續的錯誤訊息，並保持禁用
+                        const userInfo = document.getElementById('user-info');
+                        userInfo.textContent = '連線狀態: 認證失敗或離線，無法新增行程。';
+                        userInfo.classList.remove('text-gray-500');
+                        userInfo.classList.add('text-rose-500', 'opacity-100', 'h-auto');
                         toggleUIState(false); 
                     }
                     renderCalendar(); // 確保日曆在認證後渲染
@@ -333,6 +336,9 @@
                 // 如果沒有配置，則直接視為 ready (但無資料庫功能)
                 isAuthReady = true;
                 toggleUIState(true);
+                document.getElementById('user-info').textContent = '警告：Firebase配置遺失，無法儲存資料！';
+                document.getElementById('user-info').classList.remove('text-gray-500');
+                document.getElementById('user-info').classList.add('text-rose-500', 'opacity-100', 'h-auto');
                 renderCalendar();
             }
         } catch (error) {
@@ -390,9 +396,9 @@
 
     /** 新增或更新行程 */
     const saveEvent = async (eventData, eventId = null) => {
-        // [修正] 雖然 UI 已禁用，但保留最終檢查以防萬一
-        if (!isAuthReady || !userId || !db) {
-            alertUser('請稍候，認證尚未完成或Firebase未初始化。', true);
+        // [修正] 核心檢查：只需要檢查是否有 userId 才能執行寫入操作
+        if (!userId || !db) {
+            alertUser('連線失敗，請先等待認證完成。', true);
             return;
         }
 
@@ -426,7 +432,7 @@
 
     /** 刪除行程 */
     const deleteEvent = async (eventId) => {
-        if (!isAuthReady || !db) return;
+        if (!userId || !db) return;
 
         const schedulesRef = getSchedulesCollectionRef();
         if (!schedulesRef) return;
@@ -497,8 +503,8 @@
                 eventTag.title = event.title; // 完整標題提示
                 eventTag.dataset.eventId = event.id;
                 
-                // 點擊事件只在 UI 準備好時才綁定 openModal
-                if (isAuthReady) {
+                // 點擊事件只在 userId 存在時才綁定 openModal
+                if (userId) {
                     eventTag.addEventListener('click', (e) => {
                         e.stopPropagation(); // 防止點擊事件冒泡到日期格
                         openModal(event);
@@ -518,11 +524,11 @@
 
             // 點擊日期格打開新增/編輯介面 (預設為新增)
             cell.addEventListener('click', () => {
-                // 只有 UI 準備好時才允許打開 Modal
-                if (isAuthReady && userId) {
+                // [修正] 核心檢查：只檢查 userId 是否存在
+                if (userId) {
                     openModal(null, dateKey);
                 } else {
-                    alertUser('連線尚未準備好，請稍候。', true);
+                    alertUser('請先等待連線完成，或檢查連線狀態。', true);
                 }
             });
 
@@ -639,11 +645,11 @@
 
         // 新增事件按鈕
         document.getElementById('add-event-btn').addEventListener('click', () => {
-            // 點擊新增按鈕時，再次檢查狀態
-            if (isAuthReady && userId) {
+            // [修正] 核心檢查：只檢查 userId 是否存在
+            if (userId) {
                 openModal(null, formatDate(new Date()));
             } else {
-                alertUser('連線尚未準備好，請稍候。', true);
+                alertUser('請先等待連線完成，或檢查連線狀態。', true);
             }
         });
         
@@ -680,8 +686,8 @@
             e.preventDefault();
             // 檢查 saveEventBtn 是否被禁用，作為雙重保險
             const saveBtn = document.getElementById('save-event-btn');
-            if (saveBtn.disabled) {
-                 alertUser('認證尚未完成，無法儲存行程。', true);
+            if (saveBtn.disabled || !userId) {
+                 alertUser('認證尚未完成或已失敗，無法儲存行程。', true);
                  return;
             }
 
