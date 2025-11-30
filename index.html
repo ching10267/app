@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>行事曆 - 共享排程</title>
+    <!-- 載入 Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 載入 Google Fonts - Inter for clean text -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* 簡約俐落的字體和基礎設定 */
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f7f7f7; /* 極淺灰，比純白柔和 */
+            color: #1f2937; /* 深黑灰 */
+        }
+        .container-mobile {
+            max-width: 600px;
+            margin: 0 auto;
+            min-height: 100vh;
+            background-color: white;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.05);
+        }
+        .day-cell {
+            min-height: 80px; /* 增加手機上的觸控區和內容空間 */
+            cursor: pointer;
+            transition: background-color 0.15s;
+        }
+        .day-cell:hover:not(.empty-day) {
+            background-color: #f3f4f6;
+        }
+        .event-tag {
+            font-size: 0.75rem;
+            padding: 2px 6px;
+            margin-top: 2px;
+            border-radius: 4px;
+            max-width: 100%;
+            overflow: hidden;
+            white-space: nowrap;
+            text-overflow: ellipsis;
+            /* 增加過渡效果使顏色切換更平滑 */
+            transition: background-color 0.2s, border-color 0.2s; 
+        }
+        /* 優化後的顏色定義 (6種) - 使用較強的背景色和邊框 */
+        .color-A { @apply bg-blue-200 text-blue-800 border-blue-300; }
+        .color-B { @apply bg-emerald-200 text-emerald-800 border-emerald-300; }
+        .color-C { @apply bg-violet-200 text-violet-800 border-violet-300; }
+        .color-D { @apply bg-amber-200 text-amber-800 border-amber-300; }
+        .color-E { @apply bg-red-200 text-red-800 border-red-300; } /* 使用更明確的 red */
+        .color-F { @apply bg-gray-300 text-gray-800 border-gray-400; }
+
+        /* 隱藏滾動條，保持整潔 */
+        .hide-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .hide-scrollbar {
+            -ms-overflow-style: none; /* IE and Edge */
+            scrollbar-width: none; /* Firefox */
+        }
+        
+        /* 修正：強制顏色選擇器容器使用 Flex 佈局，解決只顯示一個圓圈的問題 */
+        #color-picker {
+            display: flex;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container-mobile flex flex-col">
+    <!-- 標題與用戶資訊 -->
+    <header class="p-4 border-b border-gray-200 sticky top-0 bg-white z-10 rounded-b-lg">
+        <h1 class="text-2xl font-bold text-center">行事曆</h1>
+        <!-- 連線狀態: 預設隱藏 (opacity-0, h-0) 且無連線成功訊息 -->
+        <p id="user-info" class="text-xs text-rose-500 mt-1 truncate transition-opacity duration-300 opacity-0 h-0">
+            載入中...
+        </p>
+    </header>
+
+    <!-- 導覽列 (月份切換) -->
+    <div class="flex items-center justify-between p-4 bg-gray-50 border-b border-gray-200">
+        <button id="prev-month" class="p-2 rounded-full hover:bg-gray-200 transition" aria-label="上個月">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg>
+        </button>
+        <span id="current-month-year" class="text-lg font-semibold">2023年 10月</span>
+        <button id="next-month" class="p-2 rounded-full hover:bg-gray-200 transition" aria-label="下個月">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg>
+        </button>
+    </div>
+
+    <!-- 星期標頭 -->
+    <div id="week-header" class="grid grid-cols-7 text-center text-sm font-medium text-gray-500 border-b border-gray-200">
+        <div class="py-2">日</div>
+        <div class="py-2">一</div>
+        <div class="py-2">二</div>
+        <div class="py-2">三</div>
+        <div class="py-2">四</div>
+        <div class="py-2">五</div>
+        <div class="py-2">六</div>
+    </div>
+
+    <!-- 日曆網格 -->
+    <div id="calendar-grid" class="grid grid-cols-7 flex-grow hide-scrollbar overflow-y-auto">
+        <!-- 日期格將由 JavaScript 渲染 -->
+    </div>
+
+    <!-- 新增事件按鈕 -->
+    <div class="p-4 sticky bottom-0 bg-white border-t border-gray-200 z-10 rounded-t-lg">
+        <button id="add-event-btn" class="w-full bg-black text-white p-3 rounded-xl font-semibold shadow-lg hover:bg-gray-800 transition">
+            + 新增行程
+        </button>
+    </div>
+</div>
+
+<!-- 事件新增/編輯 Modal -->
+<div id="event-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 hidden transition-opacity" aria-hidden="true">
+    <div class="bg-white w-full max-w-sm p-6 rounded-xl shadow-2xl transform transition-all duration-300">
+        <h2 id="modal-title" class="text-xl font-bold mb-4">新增行程</h2>
+        <form id="event-form">
+            
+            <!-- 日期選擇 -->
+            <div class="mb-4">
+                <label for="event-date" class="block text-sm font-medium text-gray-700 mb-1">日期</label>
+                <input type="date" id="event-date" required class="w-full p-3 border border-gray-300 rounded-lg focus:ring-black focus:border-black transition">
+            </div>
+
+            <!-- 行程內容 -->
+            <div class="mb-4">
+                <label for="event-title" class="block text-sm font-medium text-gray-700 mb-1">行程內容</label>
+                <input type="text" id="event-title" placeholder="輸入行程標題" required maxlength="50" class="w-full p-3 border border-gray-300 rounded-lg focus:ring-black focus:border-black transition">
+            </div>
+
+            <!-- 顏色色塊選擇 -->
+            <div class="mb-6">
+                <label class="block text-sm font-medium text-gray-700 mb-2">顏色標籤</label>
+                <div id="color-picker" class="flex flex-wrap gap-3">
+                    <!-- Color Options will be injected by JS -->
+                </div>
+                <input type="hidden" id="event-color" required>
+            </div>
+
+            <div class="flex flex-col space-y-3">
+                <button type="submit" id="save-event-btn" class="w-full bg-black text-white p-3 rounded-xl font-semibold hover:bg-gray-800 transition">
+                    儲存
+                </button>
+                <button type="button" id="close-modal-btn" class="w-full bg-gray-100 text-gray-800 p-3 rounded-xl font-medium hover:bg-gray-200 transition">
+                    取消
+                </button>
+                <!-- 刪除按鈕現在只負責觸發確認 Modal -->
+                <button type="button" id="delete-event-btn" class="w-full bg-rose-500 text-white p-3 rounded-xl font-semibold hover:bg-rose-600 transition hidden">
+                    刪除行程
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- 自定義刪除確認 Modal (取代 window.confirm) -->
+<div id="delete-confirm-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4 hidden transition-opacity" aria-hidden="true">
+    <div class="bg-white w-full max-w-xs p-6 rounded-xl shadow-2xl transform transition-all duration-300">
+        <h2 class="text-xl font-bold mb-4">確認刪除</h2>
+        <p class="mb-6 text-gray-700">您確定要刪除這個行程嗎？此操作無法復原。</p>
+        <div class="flex justify-end space-x-3">
+            <button type="button" id="cancel-delete-btn" class="w-1/2 bg-gray-100 text-gray-800 p-3 rounded-xl font-medium hover:bg-gray-200 transition">
+                取消
+            </button>
+            <button type="button" id="confirm-delete-btn" class="w-1/2 bg-rose-500 text-white p-3 rounded-xl font-semibold hover:bg-rose-600 transition">
+                確定刪除
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- Firebase 載入 -->
+<script type="module">
+    // --- Firebase 模組載入 ---
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, doc, addDoc, setDoc, deleteDoc, onSnapshot, collection, query, where, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+    // --- 全域變數初始化與檢查 ---
+    // 必需使用全域提供的變數
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+    let firebaseConfig = null;
+    try {
+        firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
+    } catch (e) {
+        console.error("Firebase config parsing error:", e);
+    }
+    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+
+    if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
+        console.error("Firebase configuration is missing or invalid. Data persistence will not work.");
+        // 當配置錯誤時顯示錯誤訊息
+        document.getElementById('user-info').textContent = "錯誤：Firebase配置遺失！";
+        document.getElementById('user-info').classList.remove('opacity-0', 'h-0');
+        document.getElementById('user-info').classList.add('opacity-100', 'h-auto');
+    }
+
+    let app;
+    let db;
+    let auth;
+    let userId = null;
+    let isAuthReady = false;
+    let currentUnsubscribe = null; // 用於儲存當前 onSnapshot 的取消訂閱函數
+
+    // --- App State ---
+    const state = {
+        currentDate: new Date(),
+        events: {}, // Key: "YYYY-MM-DD", Value: Array of events
+        modalOpen: false,
+        editingEventId: null,
+        eventIdToDelete: null, // 新增：用於儲存待刪除的 ID
+    };
+
+    // 6種優化後的低飽和度顏色
+    const COLORS = [
+        { id: 'A', class: 'color-A', name: '藍色標籤' },
+        { id: 'B', class: 'color-B', name: '綠色標籤' },
+        { id: 'C', class: 'color-C', name: '紫色標籤' },
+        { id: 'D', class: 'color-D', name: '黃色標籤' },
+        { id: 'E', class: 'color-E', name: '紅色標籤' },
+        { id: 'F', class: 'color-F', name: '灰色標籤' }
+    ];
+
+    // --- Utility Functions ---
+
+    /** 格式化日期為 YYYY-MM-DD 字符串 */
+    const formatDate = (date) => {
+        const y = date.getFullYear();
+        const m = String(date.getMonth() + 1).padStart(2, '0');
+        const d = String(date.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    };
+
+    /** 處理 API 錯誤 (例如 Firestore 權限問題) */
+    const handleError = (action, error) => {
+        console.error(`執行 ${action} 失敗:`, error);
+        alertUser(`操作失敗: ${action}。請檢查網路或權限設置。`);
+    };
+
+    /** 顯示自定義訊息框 (顯示連線狀態，僅限臨時錯誤或提示) */
+    const alertUser = (message) => {
+        const userInfo = document.getElementById('user-info');
+        // 顯示訊息並使其可見
+        userInfo.textContent = message;
+        userInfo.classList.add('text-rose-500', 'opacity-100', 'h-auto');
+        userInfo.classList.remove('opacity-0', 'h-0');
+
+        setTimeout(() => {
+            // 隱藏訊息
+            userInfo.textContent = ''; 
+            userInfo.classList.remove('text-rose-500', 'opacity-100', 'h-auto');
+            userInfo.classList.add('opacity-0', 'h-0');
+        }, 5000);
+    };
+
+    // --- Firebase & Auth Initialization ---
+
+    /** 執行 Firebase 初始化與認證 */
+    const initializeFirebase = async () => {
+        try {
+            if (Object.keys(firebaseConfig).length > 0) {
+                app = initializeApp(firebaseConfig);
+                db = getFirestore(app);
+                auth = getAuth(app);
+                
+                // 登入邏輯
+                if (initialAuthToken) {
+                    await signInWithCustomToken(auth, initialAuthToken);
+                } else {
+                    await signInAnonymously(auth);
+                }
+
+                // 設定認證狀態監聽
+                onAuthStateChanged(auth, (user) => {
+                    if (user) {
+                        userId = user.uid;
+                        isAuthReady = true;
+                        // **[變更]** 移除持續顯示的「已同步」訊息
+                        document.getElementById('user-info').dataset.userId = userId; // 存儲 ID 供參考
+                        startListeningToEvents(); // 認證成功後開始監聽
+                    } else {
+                        userId = null;
+                        isAuthReady = true;
+                        alertUser('連線狀態: 未認證或失敗'); // 僅在失敗時顯示臨時訊息
+                    }
+                    renderCalendar(); // 確保日曆在認證後渲染
+                });
+            } else {
+                isAuthReady = true;
+                renderCalendar();
+            }
+        } catch (error) {
+            handleError('Firebase初始化', error);
+            isAuthReady = true;
+            renderCalendar();
+        }
+    };
+
+    // --- Firestore Operations ---
+
+    /** 取得公共排程集合參考 */
+    const getSchedulesCollectionRef = () => {
+        if (!db) return null;
+        // 使用公共路徑: /artifacts/{appId}/public/data/schedules
+        const path = `/artifacts/${appId}/public/data/schedules`;
+        return collection(db, path);
+    };
+
+    /** 啟動 Firestore 即時監聽 (onSnapshot) */
+    const startListeningToEvents = () => {
+        if (!db || currentUnsubscribe) return;
+
+        const schedulesRef = getSchedulesCollectionRef();
+        if (!schedulesRef) return;
+
+        // 監聽整個集合的所有文件
+        currentUnsubscribe = onSnapshot(schedulesRef, (snapshot) => {
+            console.log("Firestore Data Update Received.");
+            const newEvents = {};
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                const dateKey = data.date; // Date is stored as 'YYYY-MM-DD' string
+                
+                const event = {
+                    id: doc.id,
+                    title: data.title,
+                    colorId: data.colorId || 'F', // 預設灰色
+                    date: dateKey,
+                    creatorId: data.creatorId || 'unknown'
+                };
+
+                if (!newEvents[dateKey]) {
+                    newEvents[dateKey] = [];
+                }
+                newEvents[dateKey].push(event);
+            });
+            state.events = newEvents;
+            renderCalendar(); // 收到更新後重新渲染日曆
+        }, (error) => {
+            handleError('即時監聽', error);
+        });
+    };
+
+    /** 新增或更新行程 */
+    const saveEvent = async (eventData, eventId = null) => {
+        if (!isAuthReady || !userId || !db) {
+            alertUser('請稍候，認證尚未完成或Firebase未初始化。');
+            return;
+        }
+
+        const schedulesRef = getSchedulesCollectionRef();
+        if (!schedulesRef) return;
+
+        const dataToSave = {
+            title: eventData.title,
+            date: eventData.date,
+            colorId: eventData.colorId,
+            creatorId: userId, // 紀錄建立者
+            timestamp: Timestamp.now()
+        };
+
+        try {
+            if (eventId) {
+                // 更新現有文件
+                const docRef = doc(schedulesRef, eventId);
+                await updateDoc(docRef, dataToSave);
+                console.log("行程更新成功 ID:", eventId);
+            } else {
+                // 新增文件
+                await addDoc(schedulesRef, dataToSave);
+                console.log("行程新增成功");
+            }
+            closeModal();
+        } catch (error) {
+            handleError('儲存行程', error);
+        }
+    };
+
+    /** 刪除行程 */
+    const deleteEvent = async (eventId) => {
+        if (!isAuthReady || !db) return;
+
+        const schedulesRef = getSchedulesCollectionRef();
+        if (!schedulesRef) return;
+
+        try {
+            const docRef = doc(schedulesRef, eventId);
+            await deleteDoc(docRef);
+            console.log("行程刪除成功 ID:", eventId);
+            // 刪除成功後 onSnapshot 會自動更新日曆，無需額外操作
+        } catch (error) {
+            handleError('刪除行程', error);
+        }
+    };
+
+    // --- Calendar Rendering Logic ---
+
+    /** 渲染日曆網格 */
+    const renderCalendar = () => {
+        const grid = document.getElementById('calendar-grid');
+        const monthYearText = document.getElementById('current-month-year');
+        grid.innerHTML = ''; // 清空網格
+
+        const currentMonth = state.currentDate.getMonth();
+        const currentYear = state.currentDate.getFullYear();
+        monthYearText.textContent = `${currentYear}年 ${currentMonth + 1}月`;
+
+        const firstDayOfMonth = new Date(currentYear, currentMonth, 1);
+        const lastDayOfMonth = new Date(currentYear, currentMonth + 1, 0);
+        const daysInMonth = lastDayOfMonth.getDate();
+        let startingDay = firstDayOfMonth.getDay(); // 0 (Sun) to 6 (Sat)
+
+        // 1. 填補上個月的空位
+        for (let i = 0; i < startingDay; i++) {
+            const emptyCell = document.createElement('div');
+            emptyCell.className = 'empty-day day-cell border border-gray-100 bg-gray-50';
+            grid.appendChild(emptyCell);
+        }
+
+        // 2. 渲染本月的日期
+        for (let day = 1; day <= daysInMonth; day++) {
+            const date = new Date(currentYear, currentMonth, day);
+            const dateKey = formatDate(date);
+            const eventsOnDay = state.events[dateKey] || [];
+            
+            const cell = document.createElement('div');
+            cell.className = 'day-cell border border-gray-100 p-2 flex flex-col justify-start items-start relative';
+            
+            // 標註今天
+            if (formatDate(new Date()) === dateKey) {
+                cell.classList.add('bg-blue-50', 'border-blue-300');
+            }
+
+            // 頂部日期數字
+            const dateNumber = document.createElement('div');
+            dateNumber.className = 'text-base font-semibold';
+            dateNumber.textContent = day;
+            cell.appendChild(dateNumber);
+
+            // 事件列表
+            const eventContainer = document.createElement('div');
+            eventContainer.className = 'mt-1 w-full space-y-1';
+            
+            eventsOnDay.slice(0, 3).forEach(event => { // 最多顯示3個事件
+                const color = COLORS.find(c => c.id === event.colorId) || COLORS.find(c => c.id === 'F');
+                const eventTag = document.createElement('div');
+                eventTag.className = `event-tag ${color.class} border`;
+                eventTag.textContent = event.title;
+                eventTag.title = event.title; // 完整標題提示
+                eventTag.dataset.eventId = event.id;
+                eventTag.addEventListener('click', (e) => {
+                    e.stopPropagation(); // 防止點擊事件冒泡到日期格
+                    openModal(event);
+                });
+                eventContainer.appendChild(eventTag);
+            });
+            
+            if (eventsOnDay.length > 3) {
+                const moreText = document.createElement('div');
+                moreText.className = 'text-xs text-gray-500 mt-1';
+                moreText.textContent = `+ ${eventsOnDay.length - 3} 個行程`;
+                eventContainer.appendChild(moreText);
+            }
+            
+            cell.appendChild(eventContainer);
+
+            // 點擊日期格打開新增/編輯介面 (預設為新增)
+            cell.addEventListener('click', () => {
+                openModal(null, dateKey);
+            });
+
+            grid.appendChild(cell);
+        }
+    };
+
+    /** 月份切換處理 */
+    const changeMonth = (delta) => {
+        state.currentDate.setMonth(state.currentDate.getMonth() + delta);
+        renderCalendar();
+    };
+
+    // --- Modal Logic ---
+
+    /** 打開行程 Modal */
+    const openModal = (event = null, dateKey = null) => {
+        const modal = document.getElementById('event-modal');
+        const titleInput = document.getElementById('event-title');
+        const dateInput = document.getElementById('event-date');
+        const colorInput = document.getElementById('event-color');
+        const modalTitle = document.getElementById('modal-title');
+        const deleteBtn = document.getElementById('delete-event-btn');
+
+        state.editingEventId = event ? event.id : null;
+
+        // 1. 設定標題和刪除按鈕
+        if (event) {
+            modalTitle.textContent = '編輯行程';
+            deleteBtn.classList.remove('hidden');
+            // 點擊刪除按鈕時，打開自定義確認 Modal
+            deleteBtn.onclick = () => {
+                showDeleteConfirmModal(event.id);
+            };
+        } else {
+            modalTitle.textContent = '新增行程';
+            deleteBtn.classList.add('hidden');
+        }
+
+        // 2. 設定表單值
+        const selectedDate = dateKey || (event ? event.date : formatDate(state.currentDate));
+        titleInput.value = event ? event.title : '';
+        dateInput.value = selectedDate;
+        colorInput.value = event ? event.colorId : COLORS[0].id; // 預設第一個顏色
+
+        // 3. 渲染顏色選擇器
+        renderColorPicker(colorInput.value);
+
+        // 4. 顯示 Modal
+        modal.classList.remove('hidden');
+        setTimeout(() => modal.style.opacity = '1', 10);
+    };
+
+    /** 關閉行程 Modal */
+    const closeModal = () => {
+        const modal = document.getElementById('event-modal');
+        modal.style.opacity = '0';
+        setTimeout(() => modal.classList.add('hidden'), 300);
+        state.editingEventId = null;
+    };
+
+    /** 渲染顏色選擇器 */
+    const renderColorPicker = (selectedColorId) => {
+        const picker = document.getElementById('color-picker');
+        const colorInput = document.getElementById('event-color');
+        picker.innerHTML = '';
+
+        COLORS.forEach(color => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = `w-10 h-10 rounded-full ${color.class} flex items-center justify-center border-2 transition`;
+            button.title = color.name;
+            button.dataset.colorId = color.id;
+            
+            if (color.id === selectedColorId) {
+                // 視覺上標註選中
+                button.classList.add('border-black', 'scale-110');
+            } else {
+                button.classList.add('border-transparent');
+            }
+
+            button.addEventListener('click', () => {
+                colorInput.value = color.id;
+                renderColorPicker(color.id); // 重新渲染以更新選中狀態
+            });
+
+            picker.appendChild(button);
+        });
+    };
+
+    /** 顯示刪除確認 Modal (新功能) */
+    const showDeleteConfirmModal = (eventId) => {
+        state.eventIdToDelete = eventId;
+        closeModal(); // 關閉編輯 Modal
+        const modal = document.getElementById('delete-confirm-modal');
+        modal.classList.remove('hidden');
+        setTimeout(() => modal.style.opacity = '1', 10);
+    };
+
+    /** 隱藏刪除確認 Modal (新功能) */
+    const hideDeleteConfirmModal = () => {
+        const modal = document.getElementById('delete-confirm-modal');
+        modal.style.opacity = '0';
+        setTimeout(() => modal.classList.add('hidden'), 300);
+        state.eventIdToDelete = null;
+    };
+
+    // --- Event Listeners ---
+
+    const setupEventListeners = () => {
+        // 月份切換
+        document.getElementById('prev-month').addEventListener('click', () => changeMonth(-1));
+        document.getElementById('next-month').addEventListener('click', () => changeMonth(1));
+
+        // 新增事件按鈕
+        document.getElementById('add-event-btn').addEventListener('click', () => openModal(null, formatDate(new Date())));
+        
+        // 關閉 Modal 按鈕
+        document.getElementById('close-modal-btn').addEventListener('click', closeModal);
+
+        // 點擊 Modal 外部關閉
+        document.getElementById('event-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'event-modal') {
+                closeModal();
+            }
+        });
+
+        // --- 刪除確認 Modal 的監聽器 ---
+        document.getElementById('cancel-delete-btn').addEventListener('click', hideDeleteConfirmModal);
+
+        document.getElementById('confirm-delete-btn').addEventListener('click', () => {
+            if (state.eventIdToDelete) {
+                deleteEvent(state.eventIdToDelete);
+                hideDeleteConfirmModal();
+            }
+        });
+
+        document.getElementById('delete-confirm-modal').addEventListener('click', (e) => {
+            if (e.target.id === 'delete-confirm-modal') {
+                hideDeleteConfirmModal();
+            }
+        });
+        // --- 結束 刪除確認 Modal 的監聽器 ---
+
+
+        // 表單提交處理
+        document.getElementById('event-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const eventData = {
+                title: document.getElementById('event-title').value.trim(),
+                date: document.getElementById('event-date').value,
+                colorId: document.getElementById('event-color').value,
+            };
+
+            if (eventData.title && eventData.date && eventData.colorId) {
+                saveEvent(eventData, state.editingEventId);
+            } else {
+                alertUser('請填寫所有必填欄位。');
+            }
+        });
+    };
+
+    // --- Initialization ---
+
+    /** 應用程式啟動 */
+    window.onload = () => {
+        console.log("App loaded. Initializing Firebase...");
+        initializeFirebase();
+        setupEventListeners();
+        // 初始化時先渲染日曆，即使數據還沒載入
+        renderCalendar();
+    };
+
+</script>
+
+</body>
+</html>
