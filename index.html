@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>行事曆 - 共享排程</title>
+    <title>行事曆 - 本機儲存</title>
     <!-- 載入 Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- 載入 Google Fonts - Inter for clean text -->
@@ -70,10 +70,10 @@
 <div class="container-mobile flex flex-col">
     <!-- 標題與用戶資訊 -->
     <header class="p-4 border-b border-gray-200 sticky top-0 bg-white z-10 rounded-b-lg">
-        <h1 class="text-2xl font-bold text-center">行事曆</h1>
-        <!-- 連線狀態: 預設顯示載入中，成功後會隱藏 -->
+        <h1 class="text-2xl font-bold text-center">行事曆 (本機儲存)</h1>
+        <!-- 狀態: 用於顯示儲存成功/失敗訊息 -->
         <p id="user-info" class="text-xs text-gray-500 mt-1 truncate transition-opacity duration-300 opacity-100 h-auto">
-            連線狀態: 載入中...
+            狀態: 資料已儲存於您的瀏覽器中 (localStorage)
         </p>
     </header>
 
@@ -104,11 +104,10 @@
         <!-- 日期格將由 JavaScript 渲染 -->
     </div>
 
-    <!-- 新增事件按鈕 (預設禁用) -->
+    <!-- 新增事件按鈕 (現在始終啟用) -->
     <div class="p-4 sticky bottom-0 bg-white border-t border-gray-200 z-10 rounded-t-lg">
         <button id="add-event-btn" 
-                class="w-full bg-black text-white p-3 rounded-xl font-semibold shadow-lg transition opacity-50 cursor-not-allowed" 
-                disabled>
+                class="w-full bg-black text-white p-3 rounded-xl font-semibold shadow-lg transition hover:bg-gray-800">
             + 新增行程
         </button>
     </div>
@@ -142,16 +141,15 @@
             </div>
 
             <div class="flex flex-col space-y-3">
-                <!-- 儲存按鈕 (預設禁用) -->
+                <!-- 儲存按鈕 (現在始終啟用) -->
                 <button type="submit" id="save-event-btn" 
-                        class="w-full bg-black text-white p-3 rounded-xl font-semibold hover:bg-gray-800 transition opacity-50 cursor-not-allowed" 
-                        disabled>
+                        class="w-full bg-black text-white p-3 rounded-xl font-semibold hover:bg-gray-800 transition">
                     儲存
                 </button>
                 <button type="button" id="close-modal-btn" class="w-full bg-gray-100 text-gray-800 p-3 rounded-xl font-medium hover:bg-gray-200 transition">
                     取消
                 </button>
-                <!-- 刪除按鈕現在只負責觸發確認 Modal -->
+                <!-- 刪除按鈕只在編輯模式顯示 -->
                 <button type="button" id="delete-event-btn" class="w-full bg-rose-500 text-white p-3 rounded-xl font-semibold hover:bg-rose-600 transition hidden">
                     刪除行程
                 </button>
@@ -176,52 +174,22 @@
     </div>
 </div>
 
-<!-- Firebase 載入 -->
+<!-- 移除 Firebase 相關程式碼，改用 LocalStorage -->
 <script type="module">
-    // --- Firebase 模組載入 ---
-    import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-    import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-    import { getFirestore, doc, addDoc, setDoc, deleteDoc, onSnapshot, collection, query, where, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-    // --- 全域變數初始化與檢查 ---
-    // 必需使用全域提供的變數
-    const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-    let firebaseConfig = null;
-    try {
-        firebaseConfig = JSON.parse(typeof __firebase_config !== 'undefined' ? __firebase_config : '{}');
-    } catch (e) {
-        console.error("Firebase config parsing error:", e);
-    }
-    const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-    if (!firebaseConfig || Object.keys(firebaseConfig).length === 0) {
-        console.error("Firebase configuration is missing or invalid. Data persistence will not work.");
-        // 當配置錯誤時顯示錯誤訊息
-        document.getElementById('user-info').textContent = "錯誤：Firebase配置遺失！";
-        document.getElementById('user-info').classList.add('text-rose-500');
-    }
-
-    let app;
-    let db;
-    let auth;
-    let userId = null;
-    let isAuthReady = false;
-    let currentUnsubscribe = null; // 用於儲存當前 onSnapshot 的取消訂閱函數
-
     // --- App State ---
     const state = {
         currentDate: new Date(),
         events: {}, // Key: "YYYY-MM-DD", Value: Array of events
         modalOpen: false,
         editingEventId: null,
-        eventIdToDelete: null, // 新增：用於儲存待刪除的 ID
+        eventIdToDelete: null,
     };
 
     // 6種優化後的顏色
     const COLORS = [
         { id: 'A', class: 'color-A', name: '藍色標籤' },
         { id: 'B', class: 'color-B', name: '綠色標籤' },
-        { id: 'C', class: 'color-C', name: '紫色標籤' },
+        { id: 'C', 'class': 'color-C', name: '紫色標籤' },
         { id: 'D', class: 'color-D', name: '黃色標籤' },
         { id: 'E', class: 'color-E', name: '紅色標籤' },
         { id: 'F', class: 'color-F', name: '灰色標籤' }
@@ -237,213 +205,168 @@
         return `${y}-${m}-${d}`;
     };
 
-    /** 處理 API 錯誤 (例如 Firestore 權限問題) */
-    const handleError = (action, error) => {
-        console.error(`執行 ${action} 失敗:`, error);
-        alertUser(`操作失敗: ${action}。請檢查網路或權限設置。`, true);
+    /** 生成一個簡單的唯一 ID */
+    const generateUniqueId = () => {
+        // 使用時間戳和隨機數生成一個近似唯一的 ID
+        return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
     };
 
-    /** 顯示自定義訊息框 (顯示連線狀態，僅限臨時錯誤或提示) */
+    /** 處理 LocalStorage 錯誤或自定義提示 */
     const alertUser = (message, isError = true) => {
         const userInfo = document.getElementById('user-info');
+        // 替換或添加新訊息
         userInfo.textContent = message;
-        userInfo.classList.remove('text-gray-500', 'opacity-0', 'h-0');
-        userInfo.classList.add('opacity-100', 'h-auto', isError ? 'text-rose-500' : 'text-green-500');
+        userInfo.classList.remove('text-gray-500', 'text-rose-500', 'text-green-500');
+        userInfo.classList.add(isError ? 'text-rose-500' : 'text-green-500');
 
-        // 只在不是持續的錯誤狀態下才設置自動隱藏
-        if (!isError || message.includes('成功')) {
-            setTimeout(() => {
-                // 隱藏訊息，但不要影響持續的錯誤狀態（如果存在）
-                if (userInfo.textContent === message) {
-                    userInfo.textContent = ''; 
-                    userInfo.classList.remove('text-rose-500', 'text-green-500', 'opacity-100', 'h-auto');
-                    userInfo.classList.add('opacity-0', 'h-0');
-                }
-            }, 5000);
-        }
+        // 自動隱藏訊息
+        setTimeout(() => {
+            // 確保只隱藏當前訊息，而非被新訊息覆蓋的訊息
+            if (userInfo.textContent === message) {
+                userInfo.textContent = '狀態: 資料已儲存於您的瀏覽器中 (localStorage)'; 
+                userInfo.classList.remove('text-rose-500', 'text-green-500');
+                userInfo.classList.add('text-gray-500');
+            }
+        }, 5000);
     };
 
-    /** 控制 UI 元素，直到 Firebase 認證完成 */
+    /** 啟用/禁用 UI 元素 (在 LocalStorage 版本中，UI 始終啟用，此函數僅用於清理) */
     const toggleUIState = (ready) => {
         const addBtn = document.getElementById('add-event-btn');
         const saveBtn = document.getElementById('save-event-btn');
 
-        const classesToRemove = ['opacity-50', 'cursor-not-allowed', 'hover:bg-gray-800'];
-        const classesToAdd = ready ? ['hover:bg-gray-800'] : ['opacity-50', 'cursor-not-allowed'];
-
-        // 啟用/禁用 新增按鈕
+        // 在 LocalStorage 版本中，UI 始終處於啟用狀態
         addBtn.disabled = !ready;
-        addBtn.classList.remove(...classesToRemove);
-        addBtn.classList.add(...classesToAdd);
-        
-        // 啟用/禁用 儲存按鈕
         saveBtn.disabled = !ready;
-        saveBtn.classList.remove(...classesToRemove);
-        saveBtn.classList.add(...classesToAdd);
-        
-        // 成功連接後隱藏狀態訊息 (僅限成功時)
+
         if (ready) {
-            const userInfo = document.getElementById('user-info');
-            userInfo.classList.remove('text-rose-500', 'text-gray-500', 'opacity-100', 'h-auto');
-            userInfo.classList.add('opacity-0', 'h-0');
+            addBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+            saveBtn.classList.remove('opacity-50', 'cursor-not-allowed');
         }
     };
 
-    // --- Firebase & Auth Initialization ---
 
-    /** 執行 Firebase 初始化與認證 */
-    const initializeFirebase = async () => {
-        // 立即禁用 UI 並顯示載入狀態
-        toggleUIState(false); 
-        document.getElementById('user-info').textContent = '連線狀態: 正在驗證使用者...';
-        document.getElementById('user-info').classList.remove('text-rose-500');
-        document.getElementById('user-info').classList.add('text-gray-500', 'opacity-100', 'h-auto');
+    // --- LocalStorage Operations ---
 
+    /** 從 LocalStorage 載入所有行程 */
+    const loadEventsFromLocalStorage = () => {
         try {
-            if (Object.keys(firebaseConfig).length > 0) {
-                app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-                
-                // 登入邏輯
-                if (initialAuthToken) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                } else {
-                    await signInAnonymously(auth);
-                }
-
-                // 設定認證狀態監聽
-                onAuthStateChanged(auth, (user) => {
-                    isAuthReady = true; // 認證檢查完成
-                    if (user) {
-                        userId = user.uid;
-                        // 認證成功，啟用 UI
-                        toggleUIState(true);
-                        document.getElementById('user-info').dataset.userId = userId; 
-                        startListeningToEvents(); // 認證成功後開始監聽
-                    } else {
-                        userId = null;
-                        // 認證失敗，顯示持續的錯誤訊息，並保持禁用
-                        const userInfo = document.getElementById('user-info');
-                        userInfo.textContent = '連線狀態: 認證失敗或離線，無法新增行程。';
-                        userInfo.classList.remove('text-gray-500');
-                        userInfo.classList.add('text-rose-500', 'opacity-100', 'h-auto');
-                        toggleUIState(false); 
-                    }
-                    renderCalendar(); // 確保日曆在認證後渲染
-                });
+            const storedEvents = localStorage.getItem('calendarEvents');
+            if (storedEvents) {
+                // 從儲存的 JSON 字串解析回物件
+                state.events = JSON.parse(storedEvents);
+                console.log("Events loaded from localStorage.");
             } else {
-                // 如果沒有配置，則直接視為 ready (但無資料庫功能)
-                isAuthReady = true;
-                toggleUIState(true);
-                document.getElementById('user-info').textContent = '警告：Firebase配置遺失，無法儲存資料！';
-                document.getElementById('user-info').classList.remove('text-gray-500');
-                document.getElementById('user-info').classList.add('text-rose-500', 'opacity-100', 'h-auto');
-                renderCalendar();
+                state.events = {};
+                console.log("No events found in localStorage.");
             }
-        } catch (error) {
-            handleError('Firebase初始化', error);
-            isAuthReady = true;
-            toggleUIState(false); // 保持禁用，直到解決錯誤
-            renderCalendar();
+        } catch (e) {
+            console.error("Error loading events from localStorage:", e);
+            alertUser('載入失敗：無法從瀏覽器讀取資料。', true);
+            state.events = {};
+        }
+        renderCalendar();
+    };
+
+    /** 將所有行程儲存到 LocalStorage */
+    const saveEventsToLocalStorage = () => {
+        try {
+            // 將整個 events 狀態物件序列化為 JSON 字串
+            localStorage.setItem('calendarEvents', JSON.stringify(state.events));
+            console.log("Events saved to localStorage.");
+        } catch (e) {
+            console.error("Error saving events to localStorage:", e);
+            alertUser('儲存失敗：瀏覽器儲存空間不足或設定禁止。', true);
         }
     };
 
-    // --- Firestore Operations ---
-
-    /** 取得公共排程集合參考 */
-    const getSchedulesCollectionRef = () => {
-        if (!db) return null;
-        // 使用公共路徑: /artifacts/{appId}/public/data/schedules
-        const path = `/artifacts/${appId}/public/data/schedules`;
-        return collection(db, path);
-    };
-
-    /** 啟動 Firestore 即時監聽 (onSnapshot) */
-    const startListeningToEvents = () => {
-        if (!db || currentUnsubscribe) return;
-
-        const schedulesRef = getSchedulesCollectionRef();
-        if (!schedulesRef) return;
-
-        // 監聽整個集合的所有文件
-        currentUnsubscribe = onSnapshot(schedulesRef, (snapshot) => {
-            console.log("Firestore Data Update Received.");
-            const newEvents = {};
-            snapshot.forEach(doc => {
-                const data = doc.data();
-                const dateKey = data.date; // Date is stored as 'YYYY-MM-DD' string
-                
-                const event = {
-                    id: doc.id,
-                    title: data.title,
-                    colorId: data.colorId || 'F', // 預設灰色
-                    date: dateKey,
-                    creatorId: data.creatorId || 'unknown'
-                };
-
-                if (!newEvents[dateKey]) {
-                    newEvents[dateKey] = [];
-                }
-                newEvents[dateKey].push(event);
-            });
-            state.events = newEvents;
-            renderCalendar(); // 收到更新後重新渲染日曆
-        }, (error) => {
-            handleError('即時監聽', error);
-        });
-    };
-
-    /** 新增或更新行程 */
+    /** 新增或更新行程 (使用 LocalStorage) */
     const saveEvent = async (eventData, eventId = null) => {
-        // [修正] 核心檢查：只需要檢查是否有 userId 才能執行寫入操作
-        if (!userId || !db) {
-            alertUser('連線失敗，請先等待認證完成。', true);
-            return;
-        }
+        const { title, date, colorId } = eventData;
+        
+        // 1. 處理更新或移動邏輯
+        if (eventId) {
+            let found = false;
+            let oldDateKey = null;
 
-        const schedulesRef = getSchedulesCollectionRef();
-        if (!schedulesRef) return;
-
-        const dataToSave = {
-            title: eventData.title,
-            date: eventData.date,
-            colorId: eventData.colorId,
-            creatorId: userId, // 紀錄建立者
-            timestamp: Timestamp.now()
-        };
-
-        try {
-            if (eventId) {
-                // 更新現有文件
-                const docRef = doc(schedulesRef, eventId);
-                await updateDoc(docRef, dataToSave);
-                alertUser('行程更新成功！', false);
-            } else {
-                // 新增文件
-                await addDoc(schedulesRef, dataToSave);
-                alertUser('行程新增成功！', false);
+            // 遍歷尋找舊事件
+            for (const key in state.events) {
+                const eventIndex = state.events[key].findIndex(e => e.id === eventId);
+                if (eventIndex !== -1) {
+                    oldDateKey = key;
+                    found = true;
+                    
+                    // 如果日期改變了，先從舊日期刪除
+                    if (date !== oldDateKey) {
+                        state.events[key].splice(eventIndex, 1);
+                    } else {
+                        // 日期沒變，直接更新
+                        state.events[key][eventIndex].title = title;
+                        state.events[key][eventIndex].colorId = colorId;
+                    }
+                    break;
+                }
             }
-            closeModal();
-        } catch (error) {
-            handleError('儲存行程', error);
+
+            // 如果找到且日期有變，或舊事件不存在（防止錯誤）
+            if (found && date !== oldDateKey || !found) {
+                 const newEvent = { id: eventId, title, colorId, date };
+                 if (!state.events[date]) state.events[date] = [];
+                 state.events[date].push(newEvent);
+                 alertUser('行程已更新！', false);
+            } else if (found) {
+                 alertUser('行程已更新！', false);
+            } else {
+                 alertUser('錯誤：找不到要更新的行程。', true);
+            }
+        } else {
+            // 2. 處理新增邏輯
+            const newEvent = {
+                id: generateUniqueId(),
+                title,
+                date,
+                colorId,
+            };
+            if (!state.events[date]) state.events[date] = [];
+            state.events[date].push(newEvent);
+            alertUser('行程新增成功！', false);
         }
+        
+        // 3. 清理空日期鍵
+        Object.keys(state.events).forEach(key => {
+            if (state.events[key].length === 0) {
+                delete state.events[key];
+            }
+        });
+
+        saveEventsToLocalStorage();
+        renderCalendar();
+        closeModal();
     };
 
-    /** 刪除行程 */
+    /** 刪除行程 (使用 LocalStorage) */
     const deleteEvent = async (eventId) => {
-        if (!userId || !db) return;
+        let deleted = false;
+        // 找到並移除事件
+        for (const dateKey in state.events) {
+            const initialLength = state.events[dateKey].length;
+            // 篩選出 ID 不符合的事件，達到刪除效果
+            state.events[dateKey] = state.events[dateKey].filter(event => event.id !== eventId);
 
-        const schedulesRef = getSchedulesCollectionRef();
-        if (!schedulesRef) return;
+            if (state.events[dateKey].length < initialLength) {
+                deleted = true;
+                // 如果該日期已無事件，則移除該日期鍵
+                if (state.events[dateKey].length === 0) {
+                    delete state.events[dateKey];
+                }
+                break;
+            }
+        }
 
-        try {
-            const docRef = doc(schedulesRef, eventId);
-            await deleteDoc(docRef);
+        if (deleted) {
+            saveEventsToLocalStorage();
+            renderCalendar();
             alertUser('行程刪除成功！', false);
-            // 刪除成功後 onSnapshot 會自動更新日曆，無需額外操作
-        } catch (error) {
-            handleError('刪除行程', error);
         }
     };
 
@@ -504,12 +427,10 @@
                 eventTag.dataset.eventId = event.id;
                 
                 // 點擊事件只在 userId 存在時才綁定 openModal
-                if (userId) {
-                    eventTag.addEventListener('click', (e) => {
-                        e.stopPropagation(); // 防止點擊事件冒泡到日期格
-                        openModal(event);
-                    });
-                }
+                eventTag.addEventListener('click', (e) => {
+                    e.stopPropagation(); // 防止點擊事件冒泡到日期格
+                    openModal(event);
+                });
                 eventContainer.appendChild(eventTag);
             });
             
@@ -522,14 +443,9 @@
             
             cell.appendChild(eventContainer);
 
-            // 點擊日期格打開新增/編輯介面 (預設為新增)
+            // 點擊日期格打開新增介面
             cell.addEventListener('click', () => {
-                // [修正] 核心檢查：只檢查 userId 是否存在
-                if (userId) {
-                    openModal(null, dateKey);
-                } else {
-                    alertUser('請先等待連線完成，或檢查連線狀態。', true);
-                }
+                openModal(null, dateKey);
             });
 
             grid.appendChild(cell);
@@ -619,7 +535,7 @@
         });
     };
 
-    /** 顯示刪除確認 Modal (新功能) */
+    /** 顯示刪除確認 Modal */
     const showDeleteConfirmModal = (eventId) => {
         state.eventIdToDelete = eventId;
         closeModal(); // 關閉編輯 Modal
@@ -628,7 +544,7 @@
         setTimeout(() => modal.style.opacity = '1', 10);
     };
 
-    /** 隱藏刪除確認 Modal (新功能) */
+    /** 隱藏刪除確認 Modal */
     const hideDeleteConfirmModal = () => {
         const modal = document.getElementById('delete-confirm-modal');
         modal.style.opacity = '0';
@@ -645,12 +561,7 @@
 
         // 新增事件按鈕
         document.getElementById('add-event-btn').addEventListener('click', () => {
-            // [修正] 核心檢查：只檢查 userId 是否存在
-            if (userId) {
-                openModal(null, formatDate(new Date()));
-            } else {
-                alertUser('請先等待連線完成，或檢查連線狀態。', true);
-            }
+            openModal(null, formatDate(new Date()));
         });
         
         // 關閉 Modal 按鈕
@@ -684,12 +595,6 @@
         // 表單提交處理
         document.getElementById('event-form').addEventListener('submit', (e) => {
             e.preventDefault();
-            // 檢查 saveEventBtn 是否被禁用，作為雙重保險
-            const saveBtn = document.getElementById('save-event-btn');
-            if (saveBtn.disabled || !userId) {
-                 alertUser('認證尚未完成或已失敗，無法儲存行程。', true);
-                 return;
-            }
 
             const eventData = {
                 title: document.getElementById('event-title').value.trim(),
@@ -707,13 +612,12 @@
 
     // --- Initialization ---
 
-    /** 應用程式啟動 */
+    /** 應用程式啟動 (不使用 Firebase) */
     window.onload = () => {
-        console.log("App loaded. Initializing Firebase...");
-        initializeFirebase();
+        console.log("App loaded. Using LocalStorage for persistence.");
+        loadEventsFromLocalStorage(); // 從 LocalStorage 載入資料
         setupEventListeners();
-        // 初始化時先渲染日曆
-        renderCalendar();
+        toggleUIState(true); // 始終啟用 UI
     };
 
 </script>
