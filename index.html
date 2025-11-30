@@ -73,7 +73,7 @@
         <h1 class="text-2xl font-bold text-center">行事曆 (本機儲存)</h1>
         <!-- 狀態: 用於顯示儲存成功/失敗訊息 -->
         <p id="user-info" class="text-xs text-gray-500 mt-1 truncate transition-opacity duration-300 opacity-100 h-auto">
-            狀態: 資料已儲存於您的瀏覽器中 (localStorage)
+            應用程式載入中，請稍候...
         </p>
     </header>
 
@@ -211,6 +211,14 @@
         return Date.now().toString(36) + Math.random().toString(36).substring(2, 9);
     };
 
+    /** 設置應用程式準備就緒的狀態訊息 */
+    const setReadyMessage = () => {
+        const userInfo = document.getElementById('user-info');
+        userInfo.textContent = '狀態: 資料已儲存於您的瀏覽器中 (localStorage)'; 
+        userInfo.classList.remove('text-rose-500', 'text-green-500');
+        userInfo.classList.add('text-gray-500');
+    };
+
     /** 處理 LocalStorage 錯誤或自定義提示 */
     const alertUser = (message, isError = true) => {
         const userInfo = document.getElementById('user-info');
@@ -223,9 +231,7 @@
         setTimeout(() => {
             // 確保只隱藏當前訊息，而非被新訊息覆蓋的訊息
             if (userInfo.textContent === message) {
-                userInfo.textContent = '狀態: 資料已儲存於您的瀏覽器中 (localStorage)'; 
-                userInfo.classList.remove('text-rose-500', 'text-green-500');
-                userInfo.classList.add('text-gray-500');
+                setReadyMessage(); // 使用新的設定就緒訊息函數
             }
         }, 5000);
     };
@@ -618,6 +624,7 @@
         loadEventsFromLocalStorage(); // 從 LocalStorage 載入資料
         setupEventListeners();
         toggleUIState(true); // 始終啟用 UI
+        setReadyMessage(); // 設置應用程式準備就緒的狀態訊息
     };
 
 </script>
